@@ -67,3 +67,5 @@ Thumbs.db
 *.mov
 *.wmv
 
+.history
+!low-level/logs/b1z1-low/official/
