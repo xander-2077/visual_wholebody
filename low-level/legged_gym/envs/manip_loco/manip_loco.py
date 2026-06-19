@@ -700,7 +700,7 @@ class ManipLoco(LeggedRobot):
         self.dof_vel_wo_gripper = self.dof_vel[:, :-self.cfg.env.num_gripper_joints]
         self.base_quat = self.root_states[:, 3:7]
         self.base_pos = self.root_states[:, :3]
-        self.arm_base_offset = torch.tensor([0.3, 0., 0.09], device=self.device, dtype=torch.float).repeat(self.num_envs, 1)
+        self.arm_base_offset = torch.tensor(self.cfg.asset.arm_base_offset, device=self.device, dtype=torch.float).repeat(self.num_envs, 1)
         # self.yaw_ema = euler_from_quat(self.base_quat)[2]
         base_yaw = euler_from_quat(self.base_quat)[2]
         self.base_yaw_euler = torch.cat([torch.zeros(self.num_envs, 2, device=self.device), base_yaw.view(-1, 1)], dim=1)

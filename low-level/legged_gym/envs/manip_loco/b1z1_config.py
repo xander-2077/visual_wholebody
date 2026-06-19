@@ -14,9 +14,9 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         arm_induced_pitch = 0.38 # Added to -pos_p (negative goal pitch) to get default eef orn_p
 
         class sphere_center:
-            x_offset = 0.3 # Relative to base
+            x_offset = 0.1745 # Relative to base
             y_offset = 0 # Relative to base
-            z_invariant_offset = 0.7 # Relative to terrain
+            z_invariant_offset = 0.841 # Relative to terrain
 
         class ranges:
             init_pos_start = [0.5, np.pi/8, 0]
@@ -91,22 +91,22 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         frequencies = 2
 
     class init_state( LeggedRobotCfg.init_state ):
-        pos = [0.0, 0.0, 0.5] # x,y,z [m]
+        pos = [0.0, 0.0, 0.58] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
-            'FL_hip_joint': 0.2,   # [rad]
+            'FL_hip_joint': 0.1,   # [rad]
             'FL_thigh_joint': 0.8,     # [rad]
             'FL_calf_joint': -1.5,   # [rad]
 
-            'RL_hip_joint': 0.2,   # [rad]
-            'RL_thigh_joint': 0.8,   # [rad]
+            'RL_hip_joint': 0.1,   # [rad]
+            'RL_thigh_joint': 1.0,   # [rad]
             'RL_calf_joint': -1.5,    # [rad]
 
-            'FR_hip_joint': -0.2 ,  # [rad]
+            'FR_hip_joint': -0.1 ,  # [rad]
             'FR_thigh_joint': 0.8,     # [rad]
             'FR_calf_joint': -1.5,  # [rad]
 
-            'RR_hip_joint': -0.2,   # [rad]
-            'RR_thigh_joint': 0.8,   # [rad]
+            'RR_hip_joint': -0.1,   # [rad]
+            'RR_thigh_joint': 1.0,   # [rad]
             'RR_calf_joint': -1.5,    # [rad]
 
             'z1_waist': 0.0,
@@ -122,8 +122,8 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         init_vel_perturb_range = 0.1
 
     class control:
-        stiffness = {'joint': 80, 'z1': 5}  # [N*m/rad] # Kp: 80, 150, 200
-        damping = {'joint': 2.0, 'z1': 0.5}     # [N*m*s/rad]
+        stiffness = {'joint': 160, 'z1': 5}  # [N*m/rad]
+        damping = {'joint': 5.0, 'z1': 0.5}     # [N*m*s/rad]
 
         adaptive_arm_gains = False
         # action scale: target angle = actionScale * action + defaultAngle
@@ -136,6 +136,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/b2z1_pcl/urdf/b2_z1_vbc.urdf'  # '{LEGGED_GYM_ROOT_DIR}/resources/robots/b1z1/urdf/b1z1.urdf'
         foot_name = "foot"
         gripper_name = "ee_gripper_link" #"gripperMover"
+        arm_base_offset = [0.1745, 0.0, 0.261]
         penalize_contacts_on = ["thigh", "trunk", "calf"]
         terminate_after_contacts_on = []
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
@@ -186,7 +187,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 0.4
-        base_height_target = 0.55
+        base_height_target = 0.58
         max_contact_force = 40.  # forces above this value are penalized
         # -------Gait control Para. ---------
         gait_vel_sigma = 0.5
