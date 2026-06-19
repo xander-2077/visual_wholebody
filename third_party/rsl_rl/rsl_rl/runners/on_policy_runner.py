@@ -33,14 +33,13 @@ import os
 from collections import deque
 import statistics
 
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import torch
 
 from rsl_rl.algorithms import PPO
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
 
-import wandb
 from torchinfo import summary
 
 class OnPolicyRunner:
@@ -105,8 +104,8 @@ class OnPolicyRunner:
         priv_reg_coef = 0.
 
         # initialize writer
-        # if self.log_dir is not None and self.writer is None:
-        #     self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
+        if self.log_dir is not None and self.writer is None:
+            self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         obs = self.env.get_observations()
@@ -188,7 +187,7 @@ class OnPolicyRunner:
         iteration_time = locs['collection_time'] + locs['learn_time']
 
         ep_string = f''
-        wandb_dict = {}
+        tb_dict = {}
         if locs['ep_infos']:
             for key in locs['ep_infos'][0]:
                 infotensor = torch.tensor([], device=self.device)
@@ -200,41 +199,42 @@ class OnPolicyRunner:
                         ep_info[key] = ep_info[key].unsqueeze(0)
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
-                # wandb.log({'Episode/' + key: value}, step=locs['it'])
                 if "rew" in key:
-                    wandb_dict['Episode_rew/' + key] = value
+                    tb_dict['Episode_rew/' + key] = value
                 elif "metric" in key:
-                    wandb_dict['Episode_metric/' + key] = value
+                    tb_dict['Episode_metric/' + key] = value
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         leg_mean_std = self.alg.actor_critic.std[:, :12].mean()
         arm_mean_std = self.alg.actor_critic.std[:, 12:].mean()
         std_numpy = self.alg.actor_critic.std.cpu().detach().numpy()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
 
-        wandb_dict['Loss/value_function'] = locs['mean_value_loss']
-        wandb_dict['Loss/surrogate'] = locs['mean_surrogate_loss']
-        wandb_dict['Loss/hist_latent_loss'] = locs['mean_hist_latent_loss']
-        wandb_dict['Loss/priv_reg_loss'] = locs['mean_priv_reg_loss']
-        wandb_dict['Loss/priv_ref_lambda'] = locs['priv_reg_coef']
-        wandb_dict['Loss/arm_torques_loss'] = locs['mean_arm_torques_loss']
-        wandb_dict['Loss/value_mixing_ratio'] = locs['value_mixing_ratio']
-        wandb_dict['Loss/torque_supervision_weight'] = locs['torque_supervision_weight']
-        wandb_dict['Loss/learning_rate'] = self.alg.learning_rate
-        wandb_dict['Policy/leg_mean_noise_std'] = leg_mean_std.item()
-        wandb_dict['Policy/arm_mean_noise_std'] = arm_mean_std.item()
-        wandb_dict['Policy/noise_std_dist'] = wandb.Histogram(std_numpy)
-        wandb_dict['Perf/total_fps'] = fps
-        wandb_dict['Perf/collection time'] = locs['collection_time']
-        wandb_dict['Perf/learning_time'] = locs['learn_time']
+        tb_dict['Loss/value_function'] = locs['mean_value_loss']
+        tb_dict['Loss/surrogate'] = locs['mean_surrogate_loss']
+        tb_dict['Loss/hist_latent_loss'] = locs['mean_hist_latent_loss']
+        tb_dict['Loss/priv_reg_loss'] = locs['mean_priv_reg_loss']
+        tb_dict['Loss/priv_ref_lambda'] = locs['priv_reg_coef']
+        tb_dict['Loss/arm_torques_loss'] = locs['mean_arm_torques_loss']
+        tb_dict['Loss/value_mixing_ratio'] = locs['value_mixing_ratio']
+        tb_dict['Loss/torque_supervision_weight'] = locs['torque_supervision_weight']
+        tb_dict['Loss/learning_rate'] = self.alg.learning_rate
+        tb_dict['Policy/leg_mean_noise_std'] = leg_mean_std.item()
+        tb_dict['Policy/arm_mean_noise_std'] = arm_mean_std.item()
+        tb_dict['Perf/total_fps'] = fps
+        tb_dict['Perf/collection time'] = locs['collection_time']
+        tb_dict['Perf/learning_time'] = locs['learn_time']
         if len(locs['rewbuffer']) > 0:
-            wandb_dict['Train/mean_reward'] = statistics.mean(locs['rewbuffer'])
-            wandb_dict['Train/mean_arm_reward'] = statistics.mean(locs['armrewbuffer'])
-            wandb_dict['Train/mean_episode_length'] = statistics.mean(locs['lenbuffer'])
-            wandb_dict['Train/dones'] = statistics.mean(locs['donebuffer'])
-            # wandb.log({'Train/mean_reward/time': statistics.mean(locs['rewbuffer'])}, step=self.tot_time)
-            # wandb.log({'Train/mean_episode_length/time': statistics.mean(locs['lenbuffer'])}, step=self.tot_time)
+            tb_dict['Train/mean_reward'] = statistics.mean(locs['rewbuffer'])
+            tb_dict['Train/mean_arm_reward'] = statistics.mean(locs['armrewbuffer'])
+            tb_dict['Train/mean_episode_length'] = statistics.mean(locs['lenbuffer'])
+            tb_dict['Train/dones'] = statistics.mean(locs['donebuffer'])
         
-        wandb.log(wandb_dict, step=locs['it'])
+        if self.writer is not None:
+            for key, value in tb_dict.items():
+                if isinstance(value, torch.Tensor):
+                    value = value.detach().item()
+                self.writer.add_scalar(key, value, locs['it'])
+            self.writer.add_histogram('Policy/noise_std_dist', std_numpy, locs['it'])
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
