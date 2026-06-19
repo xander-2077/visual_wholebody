@@ -133,13 +133,13 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         torque_supervision = False
 
     class asset( LeggedRobotCfg.asset ):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/b1z1/urdf/b1z1.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/b2z1_pcl/urdf/b2_z1_vbc.urdf'  # '{LEGGED_GYM_ROOT_DIR}/resources/robots/b1z1/urdf/b1z1.urdf'
         foot_name = "foot"
         gripper_name = "ee_gripper_link" #"gripperMover"
         penalize_contacts_on = ["thigh", "trunk", "calf"]
         terminate_after_contacts_on = []
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
-        flip_visual_attachments = False
+        flip_visual_attachments = True
         collapse_fixed_joints = True # Specific fixed joints can be kept by adding " <... dont_collapse="true">
         fix_base_link = False
     
