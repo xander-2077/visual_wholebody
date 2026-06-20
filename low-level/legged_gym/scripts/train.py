@@ -18,7 +18,8 @@ def copy_training_files(log_dir):
         shutil.copy2(src, os.path.join(log_dir, os.path.basename(src)))
 
 def train(args):
-    log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.exptid
+    log_name = "{}-{}".format(datetime.now().strftime("%y%m%d_%H%M%S"), args.exptid)
+    log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + log_name
     try:
         os.makedirs(log_pth)
     except:

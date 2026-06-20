@@ -13,8 +13,37 @@ import sys
 
 np.set_printoptions(precision=3, suppress=True)
 
+def resolve_load_run_path(load_run, proj_name):
+    if not load_run:
+        return None
+    load_run = os.path.expanduser(load_run)
+    if os.path.isabs(load_run):
+        return load_run
+
+    workspace_root = os.path.dirname(LEGGED_GYM_ROOT_DIR)
+    candidates = [
+        os.path.abspath(load_run),
+        os.path.join(workspace_root, load_run),
+        os.path.join(LEGGED_GYM_ROOT_DIR, load_run),
+        os.path.join(LEGGED_GYM_ROOT_DIR, "logs", load_run),
+        os.path.join(LEGGED_GYM_ROOT_DIR, "logs", proj_name, load_run),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    for path in candidates:
+        if os.path.isdir(os.path.dirname(path)):
+            return path
+    return candidates[0]
+
 def play(args):
-    log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.exptid
+    log_pth = resolve_load_run_path(args.load_run, args.proj_name)
+    if log_pth is None:
+        if args.exptid is None:
+            raise ValueError("Please provide --load_run or --exptid to select a run.")
+        log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.exptid
+    run_name = os.path.basename(os.path.normpath(log_pth))
+    exptid = args.exptid or run_name
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = 1
@@ -55,7 +84,7 @@ def play(args):
         print('Saved actor to: ', path + '/' + model_name + '_actor.pt')
     
     if args.use_jit:
-        path = os.path.join(log_pth, 'traced', args.exptid + "_" + str(args.checkpoint) + "_jit.pt")
+        path = os.path.join(log_pth, 'traced', exptid + "_" + str(checkpoint) + "_jit.pt")
         print("Loading jit for policy: ", path)
         policy = torch.jit.load(path, map_location=ppo_runner.device)
     
@@ -74,8 +103,7 @@ def play(args):
         import imageio
         env.enable_viewer_sync = False
         for i in range(env.num_envs):
-            video_name = args.exptid+ f'-{i}-' + str(checkpoint) +".mp4"
-            run_name = log_pth.split("/")[-1]
+            video_name = exptid + f'-{i}-' + str(checkpoint) +".mp4"
             path = f"../../logs/videos/{run_name}"
             if not os.path.exists(path):
                 os.makedirs(path)
@@ -119,5 +147,5 @@ if __name__ == '__main__':
     SAVE_ACTOR_HIST_ENCODER = False
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    args = get_args()
+    args = get_args(test=True)
     play(args)
