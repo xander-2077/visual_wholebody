@@ -187,8 +187,8 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 0.4
-        base_height_target = 0.58
-        max_contact_force = 40.  # forces above this value are penalized
+        base_height_target =  0.56  # 0.58
+        max_contact_force = 120.0  # 40., 80.0, 100.0  # forces above this value are penalized
         # -------Gait control Para. ---------
         gait_vel_sigma = 0.5
         gait_force_sigma = 0.5
@@ -213,10 +213,8 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             tracking_lin_vel_x_exp = 0
             tracking_ang_vel = 0.5
 
-            delta_torques = -1.0e-7/4.0
-            work = 0
             energy_square = 0.0
-            torques = -2.5e-5 
+            torques = -1.5e-5   # -2.5e-5 
             stand_still = 1.0 
             walking_dof = 1.5
             dof_default_pos = 0.0
@@ -231,12 +229,12 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             collision = -10.
             action_rate = -0.015
             dof_pos_limits = -10.0
-            delta_torques = -1.0e-7
+            delta_torques = -1.0e-7 / 4.0  # -1.0e-7
             hip_pos = -0.3
-            work = -0.003
+            work = 0.0  # -0.003
             feet_jerk = -0.0002
             feet_drag = -0.08
-            feet_contact_forces = -0.001
+            feet_contact_forces = -0.0003  # -0.001
             orientation = 0.0
             orientation_walking = 0.0
             orientation_standing = 0.0
