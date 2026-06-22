@@ -59,6 +59,8 @@ class OnPolicyRunnerHRL:
         self.current_learning_iteration = 0
         
         _, _ = self.env.reset()
+        if hasattr(self.env, "get_and_reset_iter_stats"):
+            self.env.get_and_reset_iter_stats()
     
     def _load_low_level_policy(self, stochastic=False):
         low_actor_critic_class = eval(self.cfg["low_level_policy_class_name"]) # ActorCritic
@@ -141,6 +143,7 @@ class OnPolicyRunnerHRL:
             mean_value_loss, mean_surrogate_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
+            iter_stats = self.env.get_and_reset_iter_stats() if hasattr(self.env, "get_and_reset_iter_stats") else {}
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
@@ -191,6 +194,8 @@ class OnPolicyRunnerHRL:
             tb_dict['Train/mean_episode_length'] = statistics.mean(locs['lenbuffer'])
             tb_dict['Train/dones'] = statistics.mean(locs['donebuffer'])
             tb_dict['Train/inst_max_reward'] = torch.max(locs['inst_reward_max'])
+        for key, value in locs.get('iter_stats', {}).items():
+            tb_dict['Curriculum/' + key] = value
         
         if self.writer is not None:
             for key, value in tb_dict.items():

@@ -86,6 +86,8 @@ class OnPolicyRunner:
         self.dagger_update_freq = self.alg_cfg["dagger_update_freq"]
 
         _, _ = self.env.reset()
+        if hasattr(self.env, "get_and_reset_iter_stats"):
+            self.env.get_and_reset_iter_stats()
 
         self.alg.set_arm_default_coeffs(self.env.p_gains[12:], self.env.d_gains[12:], self.env.default_dof_pos[-7:-2])
         
@@ -172,6 +174,7 @@ class OnPolicyRunner:
             
             stop = time.time()
             learn_time = stop - start
+            iter_stats = self.env.get_and_reset_iter_stats() if hasattr(self.env, "get_and_reset_iter_stats") else {}
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
@@ -228,6 +231,8 @@ class OnPolicyRunner:
             tb_dict['Train/mean_arm_reward'] = statistics.mean(locs['armrewbuffer'])
             tb_dict['Train/mean_episode_length'] = statistics.mean(locs['lenbuffer'])
             tb_dict['Train/dones'] = statistics.mean(locs['donebuffer'])
+        for key, value in locs.get('iter_stats', {}).items():
+            tb_dict['Curriculum/' + key] = value
         
         if self.writer is not None:
             for key, value in tb_dict.items():

@@ -735,8 +735,8 @@ class ManipLoco(LeggedRobot):
         self.grasp_offset = self.cfg.arm.grasp_offset
         self.init_target_ee_base = torch.tensor(self.cfg.arm.init_target_ee_base, device=self.device).unsqueeze(0)
 
-        self.traj_timesteps = torch_rand_float(self.cfg.goal_ee.traj_time[0], self.cfg.goal_ee.traj_time[1], (self.num_envs, 1), device=self.device).squeeze(1) / self.dt
-        self.traj_total_timesteps = self.traj_timesteps + torch_rand_float(self.cfg.goal_ee.hold_time[0], self.cfg.goal_ee.hold_time[1], (self.num_envs, 1), device=self.device).squeeze(1) / self.dt
+        self.traj_timesteps = torch.zeros(self.num_envs, device=self.device)
+        self.traj_total_timesteps = torch.zeros(self.num_envs, device=self.device)
         self.goal_timer = torch.zeros(self.num_envs, device=self.device)
         self.ee_start_sphere = torch.zeros(self.num_envs, 3, device=self.device)
         
@@ -770,6 +770,10 @@ class ManipLoco(LeggedRobot):
                                                    self.cfg.goal_ee.sphere_center.y_offset, 
                                                    self.cfg.goal_ee.sphere_center.z_invariant_offset], 
                                                    device=self.device).repeat(self.num_envs, 1)
+        self.ee_traj_time_uniform_count = torch.zeros((), device=self.device, dtype=torch.long)
+        self.ee_traj_time_path_count = torch.zeros((), device=self.device, dtype=torch.long)
+        self.ee_traj_time_sample_count = torch.zeros((), device=self.device, dtype=torch.long)
+        self._resample_ee_goal_timings(torch.arange(self.num_envs, device=self.device))
         
         self.curr_ee_goal_cart_world = self._get_ee_goal_spherical_center() + quat_apply(self.base_yaw_quat, self.curr_ee_goal_cart)
 
@@ -908,6 +912,14 @@ class ManipLoco(LeggedRobot):
         """
 
         if self.cfg.env.teleop_mode:
+            return
+
+        fixed_base_command = getattr(self.cfg.env, "fixed_base_command", None)
+        if fixed_base_command is not None:
+            command = torch.as_tensor(fixed_base_command, device=self.device, dtype=self.commands.dtype)
+            if command.numel() != self.cfg.commands.num_commands:
+                raise ValueError(f"fixed_base_command must have {self.cfg.commands.num_commands} values")
+            self.commands[env_ids, :] = command
             return
 
         if self.global_steps < 5000 * 24: # 5000 can learn forward
@@ -1193,6 +1205,74 @@ class ManipLoco(LeggedRobot):
         ee_goal_delta_orn_y = torch_rand_float(self.goal_ee_ranges["delta_orn_y"][0], self.goal_ee_ranges["delta_orn_y"][1], (len(env_ids), 1), device=self.device)
         self.ee_goal_orn_delta_rpy[env_ids, :] = torch.cat([ee_goal_delta_orn_r, ee_goal_delta_orn_p, ee_goal_delta_orn_y], dim=-1)
 
+    def _get_ee_goal_curriculum_progress(self):
+        curriculum_steps = max(float(getattr(self.cfg.goal_ee, "traj_time_curriculum_steps", 1)), 1.0)
+        return min(float(getattr(self, "global_steps", 0)) / curriculum_steps, 1.0)
+
+    def _get_curriculum_range(self, final_range, init_range_name):
+        progress = self._get_ee_goal_curriculum_progress()
+        init_range = getattr(self.cfg.goal_ee, init_range_name, final_range)
+        low = init_range[0] + (final_range[0] - init_range[0]) * progress
+        high = init_range[1] + (final_range[1] - init_range[1]) * progress
+        return low, high
+
+    def _get_curriculum_scalar(self, final_value, init_value):
+        progress = self._get_ee_goal_curriculum_progress()
+        return init_value + (final_value - init_value) * progress
+
+    def _estimate_ee_goal_path_length(self, env_ids):
+        ee_target_all_sphere = torch.lerp(self.ee_start_sphere[env_ids, ..., None],
+                                          self.ee_goal_sphere[env_ids, ..., None],
+                                          self.collision_check_t)
+        ee_target_cart = sphere2cart(torch.permute(ee_target_all_sphere, (2, 0, 1)).reshape(-1, 3))
+        ee_target_cart = ee_target_cart.reshape(self.num_collision_check_samples, -1, 3)
+        segment_lengths = torch.norm(ee_target_cart[1:] - ee_target_cart[:-1], dim=-1)
+        return torch.sum(segment_lengths, dim=0)
+
+    def _resample_ee_goal_timings(self, env_ids):
+        if len(env_ids) == 0:
+            return
+
+        traj_time_low, traj_time_high = self._get_curriculum_range(self.cfg.goal_ee.traj_time, "traj_time_init")
+        traj_seconds = torch_rand_float(traj_time_low, traj_time_high, (len(env_ids), 1), device=self.device).squeeze(1)
+        uniform_traj_seconds = traj_seconds
+
+        max_speed_range = getattr(self.cfg.goal_ee, "max_ee_cart_goal_speed", None)
+        if max_speed_range is not None:
+            max_speed = max(self._get_curriculum_scalar(max_speed_range[1], max_speed_range[0]), 1e-6)
+            path_traj_seconds = self._estimate_ee_goal_path_length(env_ids) / max_speed
+            path_selected = path_traj_seconds > uniform_traj_seconds
+            self.ee_traj_time_path_count += path_selected.sum()
+            self.ee_traj_time_uniform_count += (~path_selected).sum()
+            traj_seconds = torch.maximum(uniform_traj_seconds, path_traj_seconds)
+        else:
+            self.ee_traj_time_uniform_count += len(env_ids)
+        self.ee_traj_time_sample_count += len(env_ids)
+
+        hold_seconds = torch_rand_float(self.cfg.goal_ee.hold_time[0], self.cfg.goal_ee.hold_time[1], (len(env_ids), 1), device=self.device).squeeze(1)
+        self.traj_timesteps[env_ids] = traj_seconds / self.dt
+        self.traj_total_timesteps[env_ids] = self.traj_timesteps[env_ids] + hold_seconds / self.dt
+
+    def get_and_reset_iter_stats(self):
+        counts = torch.stack((
+            self.ee_traj_time_uniform_count,
+            self.ee_traj_time_path_count,
+            self.ee_traj_time_sample_count,
+        )).cpu().tolist()
+        uniform_count, path_count, sample_count = [int(count) for count in counts]
+        sample_count_safe = max(sample_count, 1)
+        stats = {
+            "ee_traj_time_uniform_count": uniform_count,
+            "ee_traj_time_path_count": path_count,
+            "ee_traj_time_sample_count": sample_count,
+            "ee_traj_time_uniform_frac": uniform_count / sample_count_safe,
+            "ee_traj_time_path_frac": path_count / sample_count_safe,
+        }
+        self.ee_traj_time_uniform_count.zero_()
+        self.ee_traj_time_path_count.zero_()
+        self.ee_traj_time_sample_count.zero_()
+        return stats
+
     def _resample_ee_goal(self, env_ids, is_init=False):
         if self.cfg.env.teleop_mode and is_init:
             self.curr_ee_goal_sphere[:] = self.init_start_ee_sphere[:]
@@ -1217,6 +1297,7 @@ class ManipLoco(LeggedRobot):
                     if len(env_ids) == 0:
                         break
             self.ee_goal_cart[init_env_ids, :] = sphere2cart(self.ee_goal_sphere[init_env_ids, :])
+            self._resample_ee_goal_timings(init_env_ids)
             self.goal_timer[init_env_ids] = 0.0
 
     def _collision_check(self, env_ids):
