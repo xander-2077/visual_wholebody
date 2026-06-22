@@ -12,6 +12,31 @@ from .helpers import get_args, update_cfg_from_args, class_to_dict, get_load_pat
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 from .logger import log_files
 
+def _checkpoint_from_model_path(path):
+    name = os.path.basename(path)
+    if name.startswith("model_") and name.endswith(".pt"):
+        try:
+            return int(name[len("model_"):-len(".pt")])
+        except ValueError:
+            return None
+    return None
+
+def _resolve_resume_path(path):
+    path = os.path.expanduser(path)
+    if os.path.isabs(path):
+        return path
+
+    workspace_root = os.path.dirname(LEGGED_GYM_ROOT_DIR)
+    candidates = [
+        os.path.abspath(path),
+        os.path.join(workspace_root, path),
+        os.path.join(LEGGED_GYM_ROOT_DIR, path),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return candidates[0]
+
 class TaskRegistry():
     def __init__(self):
         self.task_classes = {}
@@ -128,18 +153,34 @@ class TaskRegistry():
                                     device=args.rl_device)
         #save resume path before creating a new log_dir
         resume = train_cfg.runner.resume
-        if args.resumeid:
+        resume_path = None
+        resume_path_arg = getattr(args, "resume_path", "")
+        if resume_path_arg:
+            resume_path = _resolve_resume_path(args.resume_path)
+            resume = True
+        elif args.resumeid:
             log_root = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.resumeid
             resume = True
         if resume:
             # load previously trained model
-            print(log_root)
-            resume_path = get_load_path(log_root, checkpoint=checkpoint)
+            if resume_path is None:
+                print(log_root)
+                resume_path = get_load_path(log_root, checkpoint=checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
-            if checkpoint == -1:
-                checkpoint = int(resume_path.split("_")[-1].split(".")[0])
+            loaded_iteration = runner.current_learning_iteration
+            if resume_path_arg:
+                checkpoint = _checkpoint_from_model_path(resume_path) or loaded_iteration
+            elif checkpoint == -1:
+                checkpoint = _checkpoint_from_model_path(resume_path) or loaded_iteration
             runner.set_it(checkpoint)
+            if hasattr(env, "global_steps"):
+                restored_global_steps = int(checkpoint) * int(train_cfg.runner.num_steps_per_env)
+                env.global_steps = restored_global_steps
+                print(f"Restored env.global_steps to {restored_global_steps} for curriculum state")
+                if hasattr(env, "_resample_ee_goal_timings"):
+                    env_ids = torch.arange(env.num_envs, device=env.device)
+                    env._resample_ee_goal_timings(env_ids)
             if not train_cfg.policy.continue_from_last_std:
                 runner.alg.actor_critic.reset_std(train_cfg.policy.init_noise_std, 12, device=runner.device)
 

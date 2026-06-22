@@ -36,6 +36,18 @@ def resolve_load_run_path(load_run, proj_name):
             return path
     return candidates[0]
 
+def use_final_ee_goal_curriculum(env_cfg):
+    goal_ee_cfg = getattr(env_cfg, "goal_ee", None)
+    if goal_ee_cfg is None:
+        return
+
+    if hasattr(goal_ee_cfg, "traj_time") and hasattr(goal_ee_cfg, "traj_time_init"):
+        goal_ee_cfg.traj_time_init = list(goal_ee_cfg.traj_time)
+
+    if hasattr(goal_ee_cfg, "max_ee_cart_goal_speed"):
+        final_speed = goal_ee_cfg.max_ee_cart_goal_speed[-1]
+        goal_ee_cfg.max_ee_cart_goal_speed = [final_speed, final_speed]
+
 def play(args):
     log_pth = resolve_load_run_path(args.load_run, args.proj_name)
     if log_pth is None:
@@ -56,6 +68,7 @@ def play(args):
     # env_cfg.domain_rand.push_interval_s = 2
     env_cfg.domain_rand.randomize_base_mass = True #False
     env_cfg.domain_rand.randomize_base_com = False
+    use_final_ee_goal_curriculum(env_cfg)
     
     if args.flat_terrain:
         env_cfg.terrain.height = [0.0, 0.0]

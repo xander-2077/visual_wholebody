@@ -3,6 +3,7 @@ import copy
 import torch
 import numpy as np
 import random
+import sys
 from isaacgym import gymapi
 from isaacgym import gymutil
 
@@ -110,6 +111,8 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             env_cfg.env.record_video = args.record_video
         if args.stand_by:
             env_cfg.env.stand_by = args.stand_by
+        if getattr(args, "fix_base_command", False):
+            env_cfg.env.fixed_base_command = list(args.base_command)
         if args.vel_obs:
             env_cfg.env.observe_velocities = args.vel_obs
         env_cfg.env.pitch_control = args.pitch_control
@@ -132,7 +135,37 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
 
     return env_cfg, cfg_train
 
+def _normalize_base_command_argv(argv):
+    normalized = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--base_command" and i + 3 < len(argv):
+            values = argv[i + 1:i + 4]
+            try:
+                [float(value) for value in values]
+            except ValueError:
+                normalized.append(argv[i])
+                i += 1
+                continue
+            normalized.extend([argv[i], ",".join(values)])
+            i += 4
+            continue
+        normalized.append(argv[i])
+        i += 1
+    return normalized
+
+def _parse_base_command(value):
+    if isinstance(value, (list, tuple)):
+        values = value
+    else:
+        values = str(value).replace(",", " ").split()
+    if len(values) != 3:
+        raise ValueError("--base_command expects exactly 3 floats: lin_vel_x lin_vel_y ang_vel_yaw")
+    return [float(value) for value in values]
+
 def get_args(test=False):
+    original_argv = sys.argv
+    sys.argv = _normalize_base_command_argv(sys.argv)
     custom_parameters = [
         {"name": "--task", "type": str, "default": "widowGo1", "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
         {"name": "--resume", "action": "store_true", "default": False,  "help": "Resume training from a checkpoint"},
@@ -140,6 +173,7 @@ def get_args(test=False):
         {"name": "--run_name", "type": str,  "required": False,  "help": "Name of the run. Overrides config file if provided."},
         {"name": "--load_run", "type": str, "default": "", "help": "Name of the run to load when resume=True. If -1: will load the last run. Overrides config file if provided."},
         {"name": "--checkpoint", "type": int,"default": "-1",  "help": "Saved model checkpoint number. If -1: will load the last checkpoint. Overrides config file if provided."},
+        {"name": "--resume_path", "type": str, "default": "", "help": "Checkpoint file path to resume from. Overrides --resumeid/--checkpoint when provided."},
         {"name": "--stop_update_goal", "action": "store_true", "help": "stop when update a new ee goal"},
         {"name": "--observe_gait_commands", "action": "store_true", "help": "if observe gait commands, ref to <walk these ways>"},
         
@@ -158,6 +192,8 @@ def get_args(test=False):
         {"name": "--use_jit", "action": "store_true", "default": False,  "help": "Use jit to play"},
         {"name": "--record_video", "action": "store_true", "default": False,  "help": "Record video to play"},
         {"name": "--stand_by", "action": "store_true", "default": False,  "help": "Stand by to play"},
+        {"name": "--fix_base_command", "action": "store_true", "default": False,  "help": "Fix base velocity command instead of sampling it"},
+        {"name": "--base_command", "type": _parse_base_command, "default": [0.0, 0.0, 0.0], "help": "Fixed [lin_vel_x, lin_vel_y, ang_vel_yaw] command used with --fix_base_command"},
         {"name": "--flat_terrain", "action": "store_true", "default": False,  "help": "Flat the terrain"},
         {"name": "--pitch_control", "action": "store_true", "default": False,  "help": "Control Pitch"},
         {"name": "--vel_obs", "action": "store_true", "default": False,  "help": "Control Pitch"},
@@ -166,9 +202,12 @@ def get_args(test=False):
         {"name": "--cols", "type": int, "help": "num_cols"},
     ]
     # parse arguments
-    args = gymutil.parse_arguments(
-        description="RL Policy",
-        custom_parameters=custom_parameters)
+    try:
+        args = gymutil.parse_arguments(
+            description="RL Policy",
+            custom_parameters=custom_parameters)
+    finally:
+        sys.argv = original_argv
     
     args.test = test
 
