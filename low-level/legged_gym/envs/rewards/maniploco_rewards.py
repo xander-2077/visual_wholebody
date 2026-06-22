@@ -184,6 +184,14 @@ class ManipLoco_rewards:
         rew[~self.env._get_walking_cmd_mask()] = 0.
         return rew, rew
 
+    def _reward_standing_feet_contact(self):
+        zero_cmd_mask = torch.all(torch.abs(self.env.commands[:, :3]) < 1e-5, dim=1)
+        foot_forces = torch.norm(self.env.force_sensor_tensor[:, :, :3], dim=-1)
+        low_contact_mask = foot_forces < self.env.cfg.rewards.standing_contact_force_threshold
+        penalty = torch.any(low_contact_mask, dim=1).float()
+        penalty[~zero_cmd_mask] = 0.
+        return penalty, penalty
+
     def _reward_hip_pos(self):
         rew = torch.sum(torch.square(self.env.dof_pos[:, self.env.hip_indices] - self.env.default_dof_pos[self.env.hip_indices]), dim=1)
         return rew, rew
@@ -223,11 +231,21 @@ class ManipLoco_rewards:
         roll = self.env._get_body_orientation()[:, 0]
         error = torch.abs(roll)
         return error, error
+
+    def _reward_pitch(self):
+        pitch = self.env._get_body_orientation()[:, 1]
+        threshold = self.env.cfg.rewards.pitch_threshold
+        error = torch.clip(torch.abs(pitch) - threshold, min=0.)
+        return error, error
     
     def _reward_base_height(self):
         # Penalize base height away from target
         base_height = torch.mean(self.env.root_states[:, 2].unsqueeze(1), dim=1)
-        return torch.abs(base_height - self.env.cfg.rewards.base_height_target), base_height
+        error = torch.abs(base_height - self.env.cfg.rewards.base_height_target)
+        ee_goal_z_threshold = self.env.cfg.rewards.base_height_ignore_ee_goal_z_below
+        low_ee_goal_mask = self.env.curr_ee_goal_cart_world[:, 2] < ee_goal_z_threshold
+        error[low_ee_goal_mask] = 0.
+        return error, base_height
     
     def _reward_orientation_walking(self):
         reward, metric = self.env._reward_orientation()

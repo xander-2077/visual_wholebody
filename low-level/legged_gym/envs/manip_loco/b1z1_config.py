@@ -5,8 +5,11 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
     class goal_ee:
         num_commands = 3
         traj_time = [1, 3]
+        traj_time_init = [3, 6]
+        traj_time_curriculum_steps = 20000 * 24
+        max_ee_cart_goal_speed = [0.25, 0.75]
         hold_time = [0.5, 2]
-        collision_upper_limits = [0.1, 0.2, -0.05]
+        collision_upper_limits = [0.3, 0.2, -0.05]
         collision_lower_limits = [-0.8, -0.2, -0.7]
         underground_limit = -0.7
         num_collision_check_samples = 10
@@ -87,6 +90,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         teleop_mode = False # Overriden in teleop.py. When true, commands come from keyboard
         record_video = False
         stand_by = False
+        fixed_base_command = None
         observe_gait_commands = False
         frequencies = 2
 
@@ -187,8 +191,11 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 0.4
-        base_height_target =  0.56  # 0.58
+        base_height_target =  0.53  # 0.58, 0.56
+        base_height_ignore_ee_goal_z_below = 0.4
+        pitch_threshold = 20 * np.pi / 180
         max_contact_force = 120.0  # 40., 80.0, 100.0  # forces above this value are penalized
+        standing_contact_force_threshold = 5.0
         # -------Gait control Para. ---------
         gait_vel_sigma = 0.5
         gait_force_sigma = 0.5
@@ -217,11 +224,13 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             torques = -1.5e-5   # -2.5e-5 
             stand_still = 1.0 
             walking_dof = 1.5
+            standing_feet_contact = -2.0
             dof_default_pos = 0.0
             dof_error = 0.0 
             alive = 1.0
             lin_vel_z = -1.5
             roll = -2
+            pitch = -2
 
             # common rewards
             ang_vel_xy = -0.2 
