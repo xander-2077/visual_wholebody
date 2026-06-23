@@ -69,3 +69,4 @@ Thumbs.db
 
 .history
 !low-level/logs/b1z1-low/official/
+low-level/legged_gym/envs/official_wandb_code

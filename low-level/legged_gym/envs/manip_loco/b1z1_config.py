@@ -187,14 +187,14 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         # -------Common Para. ---------
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.2  # tracking reward = exp(-error^2/sigma)
-        tracking_ee_sigma = 1
+        tracking_ee_sigma = 1.0  # curriculum: 1.0, 0.7
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 0.4
         base_height_target =  0.53  # 0.58, 0.56
         base_height_ignore_ee_goal_z_below = 0.4
         pitch_threshold = 20 * np.pi / 180
-        max_contact_force = 120.0  # 40., 80.0, 100.0  # forces above this value are penalized
+        max_contact_force = 120.0  # curriculum: 120.0, 100.0, 80.0, 40.0   # forces above this value are penalized
         standing_contact_force_threshold = 5.0
         # -------Gait control Para. ---------
         gait_vel_sigma = 0.5
@@ -221,7 +221,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             tracking_ang_vel = 0.5
 
             energy_square = 0.0
-            torques = -1.5e-5   # -2.5e-5 
+            torques = -1.5e-5   # curriculum: -1.5e-5, -2.5e-5 
             stand_still = 1.0 
             walking_dof = 1.5
             standing_feet_contact = -2.0
@@ -240,7 +240,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             dof_pos_limits = -10.0
             delta_torques = -1.0e-7 / 4.0  # -1.0e-7
             hip_pos = -0.3
-            work = 0.0  # -0.003
+            work = 0.0  # curriculum: 0.0, -0.003
             feet_jerk = -0.0002
             feet_drag = -0.08
             feet_contact_forces = -0.0003  # -0.001
@@ -260,7 +260,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         class arm_scales:
             arm_termination = None
             tracking_ee_sphere = 0.
-            tracking_ee_world = 0.8
+            tracking_ee_world = 0.8  # curriculum: 0.8, 1.0
             tracking_ee_sphere_walking = 0.0
             tracking_ee_sphere_standing = 0.0
             tracking_ee_cart = None

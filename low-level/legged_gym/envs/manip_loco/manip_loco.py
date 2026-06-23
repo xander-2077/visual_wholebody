@@ -447,12 +447,28 @@ class ManipLoco(LeggedRobot):
         self.num_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         dof_props_asset = self.gym.get_asset_dof_properties(robot_asset)
         dof_props_asset['driveMode'][12:].fill(gymapi.DOF_MODE_POS)  # set arm to pos control
-        dof_props_asset['stiffness'][12:].fill(400.0)
-        dof_props_asset['damping'][12:].fill(40.0)
+        # Previous uniform Z1 position-servo gains:
+        # dof_props_asset['stiffness'][12:].fill(400.0)
+        # dof_props_asset['damping'][12:].fill(40.0)
+        z1_pd_gains = {
+            "z1_waist": (64.0, 1.5),
+            "z1_shoulder": (128.0, 3.0),
+            "z1_elbow": (64.0, 1.5),
+            "z1_wrist_angle": (64.0, 1.5),
+            "z1_forearm_roll": (64.0, 1.5),
+            "z1_wrist_rotate": (64.0, 1.5),
+            "z1_jointGripper": (64.0, 1.5),
+        }
+        asset_dof_names = self.gym.get_asset_dof_names(robot_asset)
+        for dof_idx, dof_name in enumerate(asset_dof_names):
+            if dof_name in z1_pd_gains:
+                kp, kd = z1_pd_gains[dof_name]
+                dof_props_asset['stiffness'][dof_idx] = kp
+                dof_props_asset['damping'][dof_idx] = kd
         rigid_shape_props_asset = self.gym.get_asset_rigid_shape_properties(robot_asset)
         self.body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.body_names_to_idx = self.gym.get_asset_rigid_body_dict(robot_asset)
-        self.dof_names = self.gym.get_asset_dof_names(robot_asset)
+        self.dof_names = asset_dof_names
         self.dof_wo_gripper_names = self.dof_names[:-self.cfg.env.num_gripper_joints]
         self.dof_names_to_idx = self.gym.get_asset_dof_dict(robot_asset)
         # self.num_bodies = len(self.body_names)

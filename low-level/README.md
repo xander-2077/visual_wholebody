@@ -48,6 +48,23 @@ python play.py --load_run low-level/logs/b1z1-low/260620_110300-b1z1_test --task
 
 Use `--sim_device cpu --rl_device cpu` in case not enough GPU memory.
 
+## Curriculum 配置
+
+这里只保留当前代码会自动更新的 curriculum/schedule。配置里仅作为 `# curriculum:` 注释记录的候选值、未被消费的 schedule、当前关闭的 terrain curriculum 不列入本节。
+
+`global_steps` 是 env policy step；当前 `runner.num_steps_per_env = 24`，所以 `20000 * 24` 个 `global_steps` 对应约 `20000` 个 PPO iteration。
+
+| 模块 | 配置项 | 当前值 | 逻辑/含义 | 当前状态 |
+| --- | --- | --- | --- | --- |
+| EEF 轨迹时间 | `goal_ee.traj_time_init` -> `goal_ee.traj_time` | `[3, 6]` s -> `[1, 3]` s | `_resample_ee_goal_timings()` 按 progress 线性插值轨迹时间范围；早期目标慢，后期目标快 | 生效 |
+| EEF 速度上限 | `goal_ee.max_ee_cart_goal_speed` | `0.25` -> `0.75` m/s | 同一个 progress 线性插值最大 EEF 笛卡尔目标速度；若路径长度要求更久，会把实际 `traj_time` 拉长到 `path_length / max_speed` | 生效 |
+| EEF curriculum 进度 | `goal_ee.traj_time_curriculum_steps` | `20000 * 24` | `progress = clip(global_steps / traj_time_curriculum_steps, 0, 1)`，约 `20000` PPO iteration 拉满 | 生效 |
+| Play 终态 curriculum | `scripts/play.py::use_final_ee_goal_curriculum()` | 使用 `traj_time` 和 `max_ee_cart_goal_speed[-1]` | play 时把 `traj_time_init` 改成最终 `traj_time`，并把速度范围固定为最终最大速度，避免从慢速初始 curriculum 开始 | 生效 |
+| PPO value mixing | `algorithm.mixing_schedule` | `[1.0, 0, 3000]` | `value_mixing_ratio = clip((counter - 0) / 3000, 0, 1) * 1.0` | 生效 |
+| PPO privileged regularization | `algorithm.priv_reg_coef_schedual` | `[0, 0.1, 3000, 7000]` | 第 `3000` 个 update 后开始，`7000` 个 update 内从 `0` 线性升到 `0.1` | 生效 |
+
+EEF timing curriculum 会额外记录到 TensorBoard 的 `Curriculum/*` 标签下：`ee_traj_time_uniform_count`、`ee_traj_time_path_count`、`ee_traj_time_sample_count`、`ee_traj_time_uniform_frac`、`ee_traj_time_path_frac`。其中 `path_*` 表示因为路径长度和最大速度约束而拉长轨迹时间的采样比例。
+
 ## Suggestions
 To choose a good low-level policy that can be further used for training the high-level policy, we suggest you deploy the low-level policy first, and see if it goes well before training a high-level policy.
 
