@@ -76,6 +76,8 @@ To choose a good low-level policy that can be further used for training the high
 
 - `Episode_metric/metric_tracking_ee_world`：EEF 位置跟踪误差，越低越好。
 - `Episode_rew/rew_tracking_ee_world`：缩放后的 EEF 跟踪奖励，越高越好。
+- `Episode_metric/metric_tracking_ee_vel`：EEF local velocity 对平滑 target local velocity 的跟踪误差，越低越好。
+- `Episode_rew/rew_tracking_ee_vel`：缩放后的 EEF 速度跟踪辅助奖励，权重应明显小于位置跟踪。
 - `Episode_metric/metric_tracking_lin_vel_max`：前向速度跟踪得分，越接近 1 越好。
 - `Episode_metric/metric_tracking_ang_vel`：yaw 角速度跟踪平方误差，越低越好。
 - `Episode_metric/metric_collision`：trunk/thigh/calf 的碰撞计数，应接近 0。
@@ -123,6 +125,8 @@ Command/target 输入：
 | `obs[:, 57:60]` / `commands[:, :3]` | 3 | 底盘 command：`[lin_vel_x, lin_vel_y, ang_vel_yaw]` | `lin_vel_x in [-0.8, 0.8] m/s`，`lin_vel_y = 0`，`ang_vel_yaw in [-1, 1] rad/s` | 代码变量 `self.commands` 只包含这 3 维；前 `5000*24` global steps 只采正向 `lin_vel_x`；小 command 会整体置零 |
 | `obs[:, 60:63]` / `ee_goal_local_cart` | 3 | 机械臂 EEF target position | 相对 arm base 的 base-frame 位置，单位 m | 这是 agent 输入中的机械臂 command/target，不在 `self.commands` 变量里 |
 | `obs[:, 63:66]` | 3 | 机械臂 EEF target orientation 占位 | 当前恒为 `0` | 预留 ABI 位，当前未提供真实姿态目标 |
+
+`ee_goal_local_vel` 只在训练环境内部由 target position 差分得到，并用于 `tracking_ee_vel` 辅助 reward；它不进入 actor obs，也不增加部署输入 ABI。
 
 Action 输出：
 

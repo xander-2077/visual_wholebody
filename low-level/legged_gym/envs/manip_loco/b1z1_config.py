@@ -8,6 +8,8 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         traj_time_init = [3, 6]
         traj_time_curriculum_steps = 20000 * 24
         max_ee_cart_goal_speed = [0.25, 0.75]
+        target_vel_ema_alpha = 0.2
+        target_vel_clip = 2.0
         hold_time = [0.5, 2]
         collision_upper_limits = [0.3, 0.2, -0.05]
         collision_lower_limits = [-0.8, -0.2, -0.7]
@@ -79,7 +81,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         num_torques = 12 + 6
         action_delay = 3  # -1 for no delay
         num_gripper_joints = 1
-        num_proprio = 2 + 3 + 18 + 18 + 12 + 4 + 3 + 3 + 3 
+        num_proprio = 2 + 3 + 18 + 18 + 12 + 4 + 3 + 3 + 3
         num_priv = 5 + 1 + 12
         history_len = 10
         num_observations = num_proprio * (history_len+1) + num_priv
@@ -188,6 +190,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.2  # tracking reward = exp(-error^2/sigma)
         tracking_ee_sigma = 1.0  # curriculum: 1.0, 0.7
+        tracking_ee_vel_sigma = 1.0
         soft_dof_pos_limit = 1.  # percentage of urdf limits, values above this limit are penalized
         soft_dof_vel_limit = 1.
         soft_torque_limit = 0.4
@@ -261,6 +264,7 @@ class B1Z1RoughCfg( LeggedRobotCfg ):
             arm_termination = None
             tracking_ee_sphere = 0.
             tracking_ee_world = 0.8  # curriculum: 0.8, 1.0
+            tracking_ee_vel = 0.05
             tracking_ee_sphere_walking = 0.0
             tracking_ee_sphere_standing = 0.0
             tracking_ee_cart = None

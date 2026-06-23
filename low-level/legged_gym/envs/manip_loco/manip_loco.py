@@ -116,13 +116,16 @@ class ManipLoco(LeggedRobot):
         self._post_physics_step_callback()
         
         # update ee goal
-        self._update_curr_ee_goal()
+        resampled_ee_goal_env_ids = self._update_curr_ee_goal()
 
         # compute observations, rewards, resets, ...
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids, start=False)
+        if len(resampled_ee_goal_env_ids) > 0:
+            self._set_curr_ee_goal(resampled_ee_goal_env_ids)
+            self._update_ee_goal_tracking_state(resampled_ee_goal_env_ids, reset_history=True)
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
         self.last_actions[:] = self.actions[:]
@@ -184,8 +187,7 @@ class ManipLoco(LeggedRobot):
     def compute_observations(self):
         """ Computes observations
         """
-        arm_base_pos = self.base_pos + quat_apply(self.base_yaw_quat, self.arm_base_offset)
-        ee_goal_local_cart = quat_rotate_inverse(self.base_quat, self.curr_ee_goal_cart_world - arm_base_pos)
+        ee_goal_local_cart = self.ee_goal_local_cart
         if self.stand_by:
             self.commands[:] = 0.
 
@@ -293,6 +295,9 @@ class ManipLoco(LeggedRobot):
         self.obs_history_buf[env_ids, :, :] = 0.
         self.action_history_buf[env_ids, :, :] = 0.
         self.goal_timer[env_ids] = 0.
+        self._refresh_base_yaw_quat(env_ids)
+        self._set_curr_ee_goal(env_ids)
+        self._update_ee_goal_tracking_state(env_ids, reset_history=True)
 
         # fill extras
         self.extras["episode"] = {}
@@ -792,6 +797,12 @@ class ManipLoco(LeggedRobot):
         self._resample_ee_goal_timings(torch.arange(self.num_envs, device=self.device))
         
         self.curr_ee_goal_cart_world = self._get_ee_goal_spherical_center() + quat_apply(self.base_yaw_quat, self.curr_ee_goal_cart)
+        self.ee_goal_local_cart = self._get_ee_goal_local_cart()
+        self.last_ee_goal_local_cart = self.ee_goal_local_cart.clone()
+        self.ee_goal_local_vel = torch.zeros(self.num_envs, 3, device=self.device)
+        self.ee_local_cart = self._get_ee_local_cart()
+        self.last_ee_local_cart = self.ee_local_cart.clone()
+        self.ee_local_vel = torch.zeros(self.num_envs, 3, device=self.device)
 
         print('------------------------------------------------------')
         print(f'root_states shape: {self.root_states.shape}')
@@ -1316,6 +1327,44 @@ class ManipLoco(LeggedRobot):
             self._resample_ee_goal_timings(init_env_ids)
             self.goal_timer[init_env_ids] = 0.0
 
+    def _refresh_base_yaw_quat(self, env_ids):
+        base_yaw = euler_from_quat(self.base_quat[env_ids])[2]
+        self.base_yaw_euler[env_ids] = torch.stack((torch.zeros_like(base_yaw), torch.zeros_like(base_yaw), base_yaw), dim=1)
+        self.base_yaw_quat[env_ids] = quat_from_euler_xyz(torch.zeros_like(base_yaw), torch.zeros_like(base_yaw), base_yaw)
+
+    def _get_arm_base_pos(self):
+        return self.base_pos + quat_apply(self.base_yaw_quat, self.arm_base_offset)
+
+    def _get_ee_goal_local_cart(self):
+        return quat_rotate_inverse(self.base_quat, self.curr_ee_goal_cart_world - self._get_arm_base_pos())
+
+    def _get_ee_local_cart(self):
+        return quat_rotate_inverse(self.base_quat, self.ee_pos - self._get_arm_base_pos())
+
+    def _update_ee_goal_tracking_state(self, env_ids=None, reset_history=False):
+        if env_ids is None:
+            env_ids = slice(None)
+
+        ee_goal_local_cart = self._get_ee_goal_local_cart()
+        ee_local_cart = self._get_ee_local_cart()
+
+        self.ee_goal_local_cart[env_ids] = ee_goal_local_cart[env_ids]
+        self.ee_local_cart[env_ids] = ee_local_cart[env_ids]
+        if reset_history:
+            self.ee_goal_local_vel[env_ids] = 0.
+            self.ee_local_vel[env_ids] = 0.
+        else:
+            raw_goal_vel = (ee_goal_local_cart[env_ids] - self.last_ee_goal_local_cart[env_ids]) / self.dt
+            target_vel_clip = getattr(self.cfg.goal_ee, "target_vel_clip", None)
+            if target_vel_clip is not None:
+                raw_goal_vel = torch.clamp(raw_goal_vel, -target_vel_clip, target_vel_clip)
+            target_vel_alpha = getattr(self.cfg.goal_ee, "target_vel_ema_alpha", 1.0)
+            self.ee_goal_local_vel[env_ids] = target_vel_alpha * raw_goal_vel + (1.0 - target_vel_alpha) * self.ee_goal_local_vel[env_ids]
+            self.ee_local_vel[env_ids] = (ee_local_cart[env_ids] - self.last_ee_local_cart[env_ids]) / self.dt
+
+        self.last_ee_goal_local_cart[env_ids] = ee_goal_local_cart[env_ids]
+        self.last_ee_local_cart[env_ids] = ee_local_cart[env_ids]
+
     def _collision_check(self, env_ids):
         ee_target_all_sphere = torch.lerp(self.ee_start_sphere[env_ids, ..., None], self.ee_goal_sphere[env_ids, ...,  None], self.collision_check_t).squeeze(-1)
         ee_target_cart = sphere2cart(torch.permute(ee_target_all_sphere, (2, 0, 1)).reshape(-1, 3)).reshape(self.num_collision_check_samples, -1, 3)
@@ -1323,20 +1372,27 @@ class ManipLoco(LeggedRobot):
         underground_mask = torch.any(ee_target_cart[..., 2] < self.underground_limit, dim=0)
         return collision_mask | underground_mask
 
-    def _update_curr_ee_goal(self):
+    def _set_curr_ee_goal(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
         if not self.cfg.env.teleop_mode:
-            t = torch.clip(self.goal_timer / self.traj_timesteps, 0, 1)
-            self.curr_ee_goal_sphere[:] = torch.lerp(self.ee_start_sphere, self.ee_goal_sphere, t[:, None])
+            t = torch.clip(self.goal_timer[env_ids] / torch.clamp(self.traj_timesteps[env_ids], min=1.0), 0, 1)
+            self.curr_ee_goal_sphere[env_ids] = torch.lerp(self.ee_start_sphere[env_ids], self.ee_goal_sphere[env_ids], t[:, None])
 
         # TODO: for the teleop mode, we need to directly update self.curr_ee_goal_cart using VR controller.
-        self.curr_ee_goal_cart[:] = sphere2cart(self.curr_ee_goal_sphere)
-        ee_goal_cart_yaw_global = quat_apply(self.base_yaw_quat, self.curr_ee_goal_cart)
-        self.curr_ee_goal_cart_world = self._get_ee_goal_spherical_center() + ee_goal_cart_yaw_global
+        self.curr_ee_goal_cart[env_ids] = sphere2cart(self.curr_ee_goal_sphere[env_ids])
+        ee_goal_cart_yaw_global = quat_apply(self.base_yaw_quat[env_ids], self.curr_ee_goal_cart[env_ids])
+        self.curr_ee_goal_cart_world[env_ids] = self._get_ee_goal_spherical_center()[env_ids] + ee_goal_cart_yaw_global
         
         # TODO: for the teleop mode, we need to directly update self.ee_goal_orn_quat using VR controller.
         default_yaw = torch.atan2(ee_goal_cart_yaw_global[:, 1], ee_goal_cart_yaw_global[:, 0])
-        default_pitch = -self.curr_ee_goal_sphere[:, 1] + self.cfg.goal_ee.arm_induced_pitch
-        self.ee_goal_orn_quat = quat_from_euler_xyz(self.ee_goal_orn_delta_rpy[:, 0] + np.pi / 2, default_pitch + self.ee_goal_orn_delta_rpy[:, 1], self.ee_goal_orn_delta_rpy[:, 2] + default_yaw)
+        default_pitch = -self.curr_ee_goal_sphere[env_ids, 1] + self.cfg.goal_ee.arm_induced_pitch
+        self.ee_goal_orn_quat[env_ids] = quat_from_euler_xyz(self.ee_goal_orn_delta_rpy[env_ids, 0] + np.pi / 2, default_pitch + self.ee_goal_orn_delta_rpy[env_ids, 1], self.ee_goal_orn_delta_rpy[env_ids, 2] + default_yaw)
+
+    def _update_curr_ee_goal(self):
+        self._set_curr_ee_goal()
+        self._update_ee_goal_tracking_state()
         
         self.goal_timer += 1
         resample_id = (self.goal_timer > self.traj_total_timesteps).nonzero(as_tuple=False).flatten()
@@ -1347,6 +1403,7 @@ class ManipLoco(LeggedRobot):
             self.commands[resample_id, 2] = 0
 
         self._resample_ee_goal(resample_id)
+        return resample_id
     
     def _get_ee_goal_spherical_center(self):
         center = torch.cat([self.root_states[:, :2], torch.zeros(self.num_envs, 1, device=self.device)], dim=1)
