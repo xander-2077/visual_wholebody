@@ -218,6 +218,15 @@ def get_args(test=False):
         args.sim_device += f":{args.sim_device_id}"
     return args
 
+class HistoryPolicyExporter(torch.nn.Module):
+    def __init__(self, actor):
+        super().__init__()
+        self.actor = copy.deepcopy(actor)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.actor(obs, True)
+
+
 def export_policy_as_jit(actor_critic, path):
     if hasattr(actor_critic, 'memory_a'):
         # assumes LSTM: TODO add GRU
@@ -226,7 +235,7 @@ def export_policy_as_jit(actor_critic, path):
     else: 
         os.makedirs(path, exist_ok=True)
         path = os.path.join(path, 'policy_1.pt')
-        model = copy.deepcopy(actor_critic.actor).to('cpu')
+        model = HistoryPolicyExporter(actor_critic.actor).to('cpu')
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)
 
